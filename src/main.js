@@ -1,3 +1,4 @@
+import * as Cesium from 'cesium';
 import { createStandaloneApplication } from './standalone/application.js';
 import { describeError } from './standalone/errors.js';
 import { t } from './i18n/index.js';
@@ -5,6 +6,11 @@ import { PHOTON_SETTING as photonSetting } from './search/photonSetting.js';
 import { initRoutePlanner } from './routePlanner.js';
 import { initSimulation } from './simulation/index.js';
 import { initOceanEmbedUi } from './oceanEmbedUi.js';
+
+// Configure Cesium ion global default access token if provided in environment
+if (import.meta.env.CESIUM_ION_TOKEN) {
+  Cesium.Ion.defaultAccessToken = import.meta.env.CESIUM_ION_TOKEN;
+}
 
 const application = createStandaloneApplication({
   googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,

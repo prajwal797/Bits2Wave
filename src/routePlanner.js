@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import { CITY_POIS, findPoiByName, geocodePlace, fetchLocationSuggestions } from './locations.js';
 import { calculateVoyageGuidance } from './voyageGuidance.mjs';
 import { isPointOnLand, findNearestOceanPoint } from './simulation/routing.js';
+import { pickEllipsoidAt } from './render/cesium/common.js';
 
 /**
  * Comprehensive offline world place index for deterministic route planning.
@@ -312,6 +313,7 @@ export class RoutePlanner {
     if (!scene || !camera) return null;
 
     let cartesian = null;
+    let surfaceHeight = 0;
 
     // Method 1: Try scene.pickPosition on 3D tiles first (accurate surface elevation for land/bases)
     if (scene.pickPositionSupported) {
@@ -329,7 +331,16 @@ export class RoutePlanner {
       }
     }
 
-    // Method 2: Camera ray intersected with WGS84 ellipsoid (guaranteed for the entire Earth & open ocean)
+    // Method 2: Ray-ellipsoid geometric intersection using pickEllipsoidAt (precision WGS84)
+    if (!cartesian) {
+      try {
+        cartesian = pickEllipsoidAt(scene, camera, pixelPosition.x, pixelPosition.y);
+      } catch {
+        // Fallback
+      }
+    }
+
+    // Method 3: Camera ray intersected with WGS84 ellipsoid
     if (!cartesian) {
       try {
         const ray = camera.getPickRay(pixelPosition);
@@ -347,7 +358,7 @@ export class RoutePlanner {
       }
     }
 
-    // Method 3: Direct geometric ray-ellipsoid intersection test
+    // Method 4: Direct geometric ray-ellipsoid intersection test
     if (!cartesian) {
       try {
         const ray = camera.getPickRay(pixelPosition);
@@ -371,13 +382,14 @@ export class RoutePlanner {
 
       let lat = Cesium.Math.toDegrees(cartographic.latitude);
       let lon = Cesium.Math.toDegrees(cartographic.longitude);
+      surfaceHeight = cartographic.height || 0;
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
       lat = Math.max(-90, Math.min(90, lat));
       lon = ((lon + 180) % 360 + 360) % 360 - 180;
 
-      return { lat, lon, cartesian };
+      return { lat, lon, height: surfaceHeight, cartesian };
     } catch {
       return null;
     }
@@ -424,17 +436,20 @@ export class RoutePlanner {
       if (!this.isPlacingPins || !this.viewer) return;
 
       const now = Date.now();
-      if (now - lastClickTime < 250) return;
+      if (now - lastClickTime < 200) return;
       lastClickTime = now;
 
       const coords = this.pickCoordinates(pixelPos);
-      if (!coords) return;
+      if (!coords) {
+        console.warn('[RoutePlanner] Could not pick coordinates at pixel:', pixelPos);
+        return;
+      }
 
-      const { lat, lon } = coords;
+      const { lat, lon, height } = coords;
 
       if (this.pinStage === 0) {
         // 1st click: Initial Pin (Cyan)
-        this.initialPinData = { lat, lon, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
+        this.initialPinData = { lat, lon, height, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
         this.createPinEntity('initial', this.initialPinData);
         this.pinStage = 1;
 
@@ -443,7 +458,7 @@ export class RoutePlanner {
         }
       } else if (this.pinStage === 1) {
         // 2nd click: Final Pin (Magenta)
-        this.finalPinData = { lat, lon, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
+        this.finalPinData = { lat, lon, height, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
         this.createPinEntity('final', this.finalPinData);
         this.isPlacingPins = false;
         this.stopPinPlacement();
@@ -463,36 +478,32 @@ export class RoutePlanner {
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    // 2. Secondary fallback listener: Native DOM pointerdown/pointerup on window
-    // Ensures clicks on the globe are NEVER swallowed by camera controller or transparent overlays,
-    // while preventing camera drags/rotations from triggering a pin placement.
-    if (this._domDownHandler && typeof window !== 'undefined') {
-      window.removeEventListener('pointerdown', this._domDownHandler, true);
+    // 2. Direct DOM listener on canvas itself (catches all direct canvas clicks)
+    if (this._canvasClickHandler) {
+      canvas.removeEventListener('pointerup', this._canvasClickHandler);
     }
+    this._canvasClickHandler = (e) => {
+      if (!this.isPlacingPins) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+        handlePlacedPoint(new Cesium.Cartesian2(x, y));
+      }
+    };
+    canvas.addEventListener('pointerup', this._canvasClickHandler);
+
+    // 3. Fallback listener on window in capture phase (catches clicks even if another transparent overlay is above canvas)
     if (this._domClickHandler && typeof window !== 'undefined') {
       window.removeEventListener('pointerup', this._domClickHandler, true);
     }
-
-    let downPos = null;
-    let downTime = 0;
-
-    this._domDownHandler = (e) => {
-      downPos = { x: e.clientX, y: e.clientY };
-      downTime = Date.now();
-    };
-
     this._domClickHandler = (e) => {
       if (!this.isPlacingPins) return;
+      if (e.button !== undefined && e.button !== 0) return;
       // Do not place pins if click was inside the Route Planner panel UI or buttons
       if (e.target && e.target.closest && e.target.closest('#maritime-location-panel')) {
         return;
-      }
-
-      // Check whether this interaction was a camera drag/orbit or an intentional click
-      if (downPos) {
-        const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
-        const duration = Date.now() - downTime;
-        if (dist > 10 || duration > 600) return;
       }
 
       const rect = canvas.getBoundingClientRect();
@@ -503,9 +514,7 @@ export class RoutePlanner {
         handlePlacedPoint(new Cesium.Cartesian2(x, y));
       }
     };
-
     if (typeof window !== 'undefined') {
-      window.addEventListener('pointerdown', this._domDownHandler, true);
       window.addEventListener('pointerup', this._domClickHandler, true);
     }
   }
@@ -521,16 +530,16 @@ export class RoutePlanner {
       } catch {
         // ignore
       }
+      if (this._canvasClickHandler) {
+        canvas.removeEventListener('pointerup', this._canvasClickHandler);
+        this._canvasClickHandler = null;
+      }
     }
 
     if (this.screenSpaceHandler && !this.screenSpaceHandler.isDestroyed()) {
       this.screenSpaceHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }
     if (typeof window !== 'undefined') {
-      if (this._domDownHandler) {
-        window.removeEventListener('pointerdown', this._domDownHandler, true);
-        this._domDownHandler = null;
-      }
       if (this._domClickHandler) {
         window.removeEventListener('pointerup', this._domClickHandler, true);
         this._domClickHandler = null;
@@ -548,31 +557,48 @@ export class RoutePlanner {
       this.viewer.entities.remove(this[entityProp]);
     }
 
-    const pos = Cesium.Cartesian3.fromDegrees(pinData.lon, pinData.lat);
-    const color = isInitial ? Cesium.Color.CYAN : Cesium.Color.MAGENTA;
-    const title = isInitial ? 'INITIAL PIN' : 'FINAL PIN';
+    const pos = Cesium.Cartesian3.fromDegrees(
+      pinData.lon,
+      pinData.lat,
+      Math.max(0, pinData.height || 0) + 15
+    );
+    const color = isInitial ? Cesium.Color.CYAN : Cesium.Color.fromCssColorString('#ff007f');
+    const title = isInitial ? 'START PIN' : 'DESTINATION PIN';
+
+    // SVG Glowing Pin Marker Icon
+    const pinColorHex = isInitial ? '#00e5ff' : '#ff007f';
+    const svgPin = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52"><defs><filter id="glow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="${encodeURIComponent(pinColorHex)}" flood-opacity="0.8"/></filter></defs><path d="M20 2 C10 2 2 10 2 20 C2 33 20 50 20 50 C20 50 38 33 38 20 C38 10 30 2 20 2 Z" fill="${encodeURIComponent(pinColorHex)}" stroke="%23ffffff" stroke-width="2.5" filter="url(%23glow)"/><circle cx="20" cy="19" r="6" fill="%230a101d" stroke="%23ffffff" stroke-width="2"/></svg>`;
 
     this[entityProp] = this.viewer.entities.add({
       name: `${title}: ${pinData.lat.toFixed(4)}°, ${pinData.lon.toFixed(4)}°`,
       position: pos,
+      billboard: {
+        image: svgPin,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        scale: 0.9,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
       point: {
-        pixelSize: 14,
+        pixelSize: 12,
         color: color,
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
-        heightReference: Cesium.HeightReference.NONE,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
       label: {
         text: `${title}\n${pinData.lat.toFixed(4)}°, ${pinData.lon.toFixed(4)}°`,
-        font: 'bold 12px sans-serif',
+        font: 'bold 12px monospace',
         fillColor: Cesium.Color.WHITE,
         outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
+        outlineWidth: 4,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        pixelOffset: new Cesium.Cartesian2(0, -14),
+        pixelOffset: new Cesium.Cartesian2(0, -52),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       },
     });
 
@@ -660,21 +686,68 @@ export class RoutePlanner {
         }
       }
 
+      // Ensure start and destination endpoints are in navigable maritime waters (auto-snap land/coastal points)
+      let startLat = resolvedInit.latitude ?? resolvedInit.lat;
+      let startLon = resolvedInit.longitude ?? resolvedInit.lon;
+      let destLat = resolvedFinal.latitude ?? resolvedFinal.lat;
+      let destLon = resolvedFinal.longitude ?? resolvedFinal.lon;
+
+      if (isPointOnLand(startLat, startLon)) {
+        const oceanStart = findNearestOceanPoint(startLat, startLon);
+        if (oceanStart) {
+          startLat = oceanStart.lat;
+          startLon = oceanStart.lon;
+        }
+      }
+
+      if (isPointOnLand(destLat, destLon)) {
+        const oceanDest = findNearestOceanPoint(destLat, destLon);
+        if (oceanDest) {
+          destLat = oceanDest.lat;
+          destLon = oceanDest.lon;
+        }
+      }
+
       // Try maritime routing engine via API
       try {
-        const response = await fetch('/api/route/calculate', {
+        let response = await fetch('/api/route/calculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            start: { latitude: resolvedInit.latitude ?? resolvedInit.lat, longitude: resolvedInit.longitude ?? resolvedInit.lon },
-            destination: { latitude: resolvedFinal.latitude ?? resolvedFinal.lat, longitude: resolvedFinal.longitude ?? resolvedFinal.lon },
+            start: { latitude: startLat, longitude: startLon },
+            destination: { latitude: destLat, longitude: destLon },
             mode: mode,
             safety_buffer_km: 5.0,
             multi_route: true,
           }),
         });
 
-        const routeData = await response.json();
+        let routeData = await response.json();
+
+        // If backend reports land endpoint, retry with ocean snap suggestions
+        if (routeData.status === 'LAND_ENDPOINT') {
+          const retryStart = routeData.start?.suggested_sea_point || findNearestOceanPoint(startLat, startLon);
+          const retryDest = routeData.destination?.suggested_sea_point || findNearestOceanPoint(destLat, destLon);
+          if (retryStart || retryDest) {
+            startLat = retryStart?.latitude ?? retryStart?.lat ?? startLat;
+            startLon = retryStart?.longitude ?? retryStart?.lon ?? startLon;
+            destLat = retryDest?.latitude ?? retryDest?.lat ?? destLat;
+            destLon = retryDest?.longitude ?? retryDest?.lon ?? destLon;
+
+            response = await fetch('/api/route/calculate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                start: { latitude: startLat, longitude: startLon },
+                destination: { latitude: destLat, longitude: destLon },
+                mode: mode,
+                safety_buffer_km: 5.0,
+                multi_route: true,
+              }),
+            });
+            routeData = await response.json();
+          }
+        }
 
         if (routeData.status === 'LAND_ENDPOINT') {
           return {
