@@ -305,77 +305,135 @@ export class RoutePlanner {
     this.viewer = viewer;
   }
 
+  pickCoordinates(pixelPosition) {
+    if (!this.viewer || !pixelPosition) return null;
+    const scene = this.viewer.scene;
+    const camera = this.viewer.camera;
+    if (!scene || !camera) return null;
+
+    let cartesian = null;
+
+    // Method 1: Try scene.pickPosition on 3D tiles first (accurate surface elevation for land/bases)
+    if (scene.pickPositionSupported) {
+      try {
+        const picked = scene.pickPosition(pixelPosition);
+        if (picked && Cesium.defined(picked)) {
+          const mag = Cesium.Cartesian3.magnitude(picked);
+          // Earth radius is ~6.37e6 m, ensure valid terrestrial range
+          if (mag > 6000000 && mag < 7000000) {
+            cartesian = picked;
+          }
+        }
+      } catch {
+        // Fallback to ray intersection
+      }
+    }
+
+    // Method 2: Camera ray intersected with WGS84 ellipsoid (guaranteed for the entire Earth & open ocean)
+    if (!cartesian) {
+      try {
+        const ray = camera.getPickRay(pixelPosition);
+        if (ray) {
+          if (scene.globe && scene.globe.show) {
+            cartesian = scene.globe.pick(ray, scene);
+          }
+          if (!cartesian) {
+            const ellipsoid = scene.globe?.ellipsoid || Cesium.Ellipsoid.WGS84;
+            cartesian = camera.pickEllipsoid(pixelPosition, ellipsoid);
+          }
+        }
+      } catch {
+        cartesian = null;
+      }
+    }
+
+    // Method 3: Direct geometric ray-ellipsoid intersection test
+    if (!cartesian) {
+      try {
+        const ray = camera.getPickRay(pixelPosition);
+        if (ray) {
+          const hit = Cesium.IntersectionTests.rayEllipsoid(ray, Cesium.Ellipsoid.WGS84);
+          if (hit) {
+            const t = hit.start > 0 ? hit.start : hit.stop;
+            cartesian = Cesium.Ray.getPoint(ray, t, new Cesium.Cartesian3());
+          }
+        }
+      } catch {
+        cartesian = null;
+      }
+    }
+
+    if (!cartesian) return null;
+
+    try {
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+      if (!cartographic) return null;
+
+      let lat = Cesium.Math.toDegrees(cartographic.latitude);
+      let lon = Cesium.Math.toDegrees(cartographic.longitude);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+      lat = Math.max(-90, Math.min(90, lat));
+      lon = ((lon + 180) % 360 + 360) % 360 - 180;
+
+      return { lat, lon, cartesian };
+    } catch {
+      return null;
+    }
+  }
+
   startPinPlacement(onPinPlaced) {
     this.onPinPlacedCallback = onPinPlaced;
     this.isPlacingPins = true;
     this.pinStage = 0;
 
-    if (!this.viewer) return;
+    if (!this.viewer) {
+      if (typeof window !== 'undefined') {
+        this.viewer = window.__cryonis?.viewer || window.viewer || window.__gevViewer || null;
+      }
+    }
+
+    if (!this.viewer) {
+      console.warn('[RoutePlanner] No Cesium viewer available for pin placement');
+      return;
+    }
 
     // Reset previous pins
     this.clearPins();
 
+    const canvas = this.viewer.scene?.canvas || this.viewer.canvas;
+    if (!canvas) return;
+
+    // Visual cursor indicator for pin placement mode
+    try {
+      canvas.style.cursor = 'crosshair';
+    } catch {
+      // ignore
+    }
+
     if (!this.screenSpaceHandler || this.screenSpaceHandler.isDestroyed()) {
-      this.screenSpaceHandler = new Cesium.ScreenSpaceEventHandler(this.viewer.scene.canvas);
+      this.screenSpaceHandler = new Cesium.ScreenSpaceEventHandler(canvas);
     } else {
       this.screenSpaceHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }
 
     let lastClickTime = 0;
 
-    this.screenSpaceHandler.setInputAction((click) => {
+    const handlePlacedPoint = (pixelPos) => {
       if (!this.isPlacingPins || !this.viewer) return;
 
       const now = Date.now();
-      if (now - lastClickTime < 200) return;
+      if (now - lastClickTime < 250) return;
       lastClickTime = now;
 
-      const scene = this.viewer.scene;
-      let position = null;
+      const coords = this.pickCoordinates(pixelPos);
+      if (!coords) return;
 
-      // 1. Try scene.pickPosition (for 3D Tiles / terrain depth buffer)
-      if (scene && scene.pickPositionSupported) {
-        try {
-          position = scene.pickPosition(click.position);
-        } catch {
-          position = null;
-        }
-      }
-
-      // 2. Try globe.pick (when Cesium globe is visible)
-      if (!position && scene && scene.globe && scene.globe.show) {
-        try {
-          const ray = this.viewer.camera.getPickRay(click.position);
-          if (ray) {
-            position = scene.globe.pick(ray, scene);
-          }
-        } catch {
-          position = null;
-        }
-      }
-
-      // 3. Fall back to camera.pickEllipsoid (works anywhere on Earth even when 3D tiles or terrain are loaded)
-      if (!position && this.viewer.camera) {
-        try {
-          const ellipsoid = scene?.globe?.ellipsoid || Cesium.Ellipsoid.WGS84;
-          position = this.viewer.camera.pickEllipsoid(click.position, ellipsoid);
-        } catch {
-          position = null;
-        }
-      }
-
-      if (!position) return;
-
-      const cartographic = Cesium.Cartographic.fromCartesian(position);
-      let lat = Cesium.Math.toDegrees(cartographic.latitude);
-      let lon = Cesium.Math.toDegrees(cartographic.longitude);
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      lat = Math.max(-90, Math.min(90, lat));
-      lon = ((lon + 180) % 360 + 360) % 360 - 180;
+      const { lat, lon } = coords;
 
       if (this.pinStage === 0) {
-        // Create Initial Pin (Cyan)
+        // 1st click: Initial Pin (Cyan)
         this.initialPinData = { lat, lon, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
         this.createPinEntity('initial', this.initialPinData);
         this.pinStage = 1;
@@ -384,7 +442,7 @@ export class RoutePlanner {
           this.onPinPlacedCallback('initial', this.initialPinData);
         }
       } else if (this.pinStage === 1) {
-        // Create Final Pin (Magenta)
+        // 2nd click: Final Pin (Magenta)
         this.finalPinData = { lat, lon, label: `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°` };
         this.createPinEntity('final', this.finalPinData);
         this.isPlacingPins = false;
@@ -393,18 +451,90 @@ export class RoutePlanner {
         if (typeof this.onPinPlacedCallback === 'function') {
           this.onPinPlacedCallback('final', this.finalPinData);
         } else {
-          // Automatically calculate route after 2nd pin
           this.calculateRoute(this.initialPinData, this.finalPinData);
         }
       }
+    };
+
+    // 1. Primary listener: Cesium ScreenSpaceEventHandler
+    this.screenSpaceHandler.setInputAction((click) => {
+      if (click && click.position) {
+        handlePlacedPoint(click.position);
+      }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // 2. Secondary fallback listener: Native DOM pointerdown/pointerup on window
+    // Ensures clicks on the globe are NEVER swallowed by camera controller or transparent overlays,
+    // while preventing camera drags/rotations from triggering a pin placement.
+    if (this._domDownHandler && typeof window !== 'undefined') {
+      window.removeEventListener('pointerdown', this._domDownHandler, true);
+    }
+    if (this._domClickHandler && typeof window !== 'undefined') {
+      window.removeEventListener('pointerup', this._domClickHandler, true);
+    }
+
+    let downPos = null;
+    let downTime = 0;
+
+    this._domDownHandler = (e) => {
+      downPos = { x: e.clientX, y: e.clientY };
+      downTime = Date.now();
+    };
+
+    this._domClickHandler = (e) => {
+      if (!this.isPlacingPins) return;
+      // Do not place pins if click was inside the Route Planner panel UI or buttons
+      if (e.target && e.target.closest && e.target.closest('#maritime-location-panel')) {
+        return;
+      }
+
+      // Check whether this interaction was a camera drag/orbit or an intentional click
+      if (downPos) {
+        const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+        const duration = Date.now() - downTime;
+        if (dist > 10 || duration > 600) return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+        handlePlacedPoint(new Cesium.Cartesian2(x, y));
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointerdown', this._domDownHandler, true);
+      window.addEventListener('pointerup', this._domClickHandler, true);
+    }
   }
 
   stopPinPlacement() {
     this.isPlacingPins = false;
     this.pinStage = 0;
+
+    const canvas = this.viewer?.scene?.canvas || this.viewer?.canvas;
+    if (canvas) {
+      try {
+        canvas.style.cursor = '';
+      } catch {
+        // ignore
+      }
+    }
+
     if (this.screenSpaceHandler && !this.screenSpaceHandler.isDestroyed()) {
       this.screenSpaceHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }
+    if (typeof window !== 'undefined') {
+      if (this._domDownHandler) {
+        window.removeEventListener('pointerdown', this._domDownHandler, true);
+        this._domDownHandler = null;
+      }
+      if (this._domClickHandler) {
+        window.removeEventListener('pointerup', this._domClickHandler, true);
+        this._domClickHandler = null;
+      }
     }
   }
 

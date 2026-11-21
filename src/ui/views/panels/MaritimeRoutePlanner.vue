@@ -51,7 +51,7 @@ function getPlanner() {
 }
 
 function getViewer() {
-  return window.__cryonis?.viewer || window.viewer || null;
+  return window.__cryonis?.viewer || window.viewer || window.__gevViewer || null;
 }
 
 const formatPinLabel = (lat, lon) => `Pin: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
@@ -256,7 +256,22 @@ async function assignPinLocation(type, query) {
 
 // Action Button 1: PLACE PINS
 function handleTogglePins() {
-  const planner = getPlanner();
+  let planner = getPlanner();
+  const viewer = getViewer();
+
+  if (!planner && viewer) {
+    planner = initRoutePlanner({ viewer });
+    if (typeof window !== 'undefined') {
+      window.__cryonis = window.__cryonis || {};
+      window.__cryonis.routePlanner = planner;
+      window.routePlanner = planner;
+    }
+  }
+
+  if (planner && viewer && !planner.viewer) {
+    planner.setViewer(viewer);
+  }
+
   if (!planner) return;
 
   if (isPlacingPins.value) {

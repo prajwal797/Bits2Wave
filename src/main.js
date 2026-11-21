@@ -30,6 +30,8 @@ application.start().then((components) => {
       };
       window.routePlanner = routePlanner;
       window.simManager = simManager;
+      window.viewer = viewer;
+      window.__gevViewer = viewer;
 
       // Link RoutePlanner location changes to active Simulation scenario
       routePlanner.onLocationsChanged = (startLoc, destLoc) => {
