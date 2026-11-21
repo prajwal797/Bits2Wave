@@ -13,6 +13,9 @@ import { useVoiceStore } from '../stores/voice.js';
 import PhoneTabBar from './panels/PhoneTabBar.vue';
 import VoiceControl from './panels/VoiceControl.vue';
 import MaritimeRoutePlanner from './panels/MaritimeRoutePlanner.vue';
+import { useMaritimeRoutePlannerStore } from '../stores/maritimeRoutePlanner.js';
+
+const maritimePlannerStore = useMaritimeRoutePlannerStore();
 
 // VisualSettings publishes the active style and the map source controls
 // their chip row; until they do, the dock shows its initial markup. A style
@@ -65,9 +68,7 @@ function selectMapSource(chip) {
 }
 
 function triggerPlacePins() {
-  if (panels.value['location-bar']?.collapsed) {
-    chrome.act('toggle', 'location-bar');
-  }
+  maritimePlannerStore.open();
   const planner = window.__cryonis?.routePlanner || window.routePlanner;
   if (planner && typeof planner.handleTogglePins === 'function') {
     planner.handleTogglePins();

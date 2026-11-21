@@ -20,6 +20,7 @@ import LayerSectionIndex from './panels/LayerSectionIndex.vue';
 import LayerFinder from './panels/LayerFinder.vue';
 import DataLibraryBrowse from './panels/DataLibraryBrowse.vue';
 import { usePanelChromeStore } from '../stores/panelChrome.js';
+import { useMaritimeRoutePlannerStore } from '../stores/maritimeRoutePlanner.js';
 
 // Scene sharing (src/scenes/sharing.js) offers its authoring bar and presents
 // its dialog through this store; without this view, neither is drawn.
@@ -50,12 +51,10 @@ async function importChosen(event) {
 }
 
 const chrome = usePanelChromeStore();
+const maritimePlannerStore = useMaritimeRoutePlannerStore();
+
 function openMaritimePlanner() {
-  chrome.act('toggle', 'location-bar');
-  setTimeout(() => {
-    const btn = document.getElementById('route-place-pins-btn');
-    if (btn) btn.scrollIntoView({ behavior: 'smooth' });
-  }, 100);
+  maritimePlannerStore.open();
 }
 </script>
 
