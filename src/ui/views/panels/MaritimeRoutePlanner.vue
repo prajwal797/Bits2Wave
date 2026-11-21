@@ -264,14 +264,14 @@ function handleTogglePins() {
   } else {
     isPlacingPins.value = true;
     pinStage.value = 0;
-    statusBadge.value = t('CLICK GLOBE (START PIN)');
+    statusBadge.value = t('CLICK GLOBE (INITIAL PIN)...');
 
     planner.startPinPlacement((type, pinData) => {
       if (type === 'initial') {
         const label = formatPinLabel(pinData.lat, pinData.lon);
         startInput.value = label;
         pinStage.value = 1;
-        statusBadge.value = t('CLICK GLOBE (DEST PIN)');
+        statusBadge.value = t('CLICK GLOBE (DESTINATION PIN)...');
       } else if (type === 'final') {
         const label = formatPinLabel(pinData.lat, pinData.lon);
         destInput.value = label;
@@ -532,11 +532,12 @@ onUnmounted(() => {
             id="route-place-pins-btn"
             type="button"
             class="action-btn btn-place-pins"
+            data-vue-managed="true"
             :class="{ active: isPlacingPins }"
             :title="t('Click Cesium globe to place Cyan (Start) and Magenta (Destination) pins')"
             @click="handleTogglePins"
           >
-            <span>📍 {{ isPlacingPins ? (pinStage === 0 ? t('CLICK START PIN...') : t('CLICK DEST PIN...')) : t('PLACE PINS') }}</span>
+            <span>📍 {{ isPlacingPins ? (pinStage === 0 ? t('CLICK GLOBE (INITIAL PIN)...') : t('CLICK GLOBE (DESTINATION PIN)...')) : t('PLACE PINS') }}</span>
           </button>
 
           <!-- Button 2: CALCULATE SHORTEST PATH -->
@@ -544,6 +545,7 @@ onUnmounted(() => {
             id="route-calculate-btn"
             type="button"
             class="action-btn btn-calculate"
+            data-vue-managed="true"
             :title="t('Calculate shortest maritime route with sea-ice obstacle avoidance')"
             @click="handleCalculateShortestPath"
           >
@@ -555,6 +557,7 @@ onUnmounted(() => {
             id="route-clear-btn"
             type="button"
             class="action-btn btn-clear"
+            data-vue-managed="true"
             :title="t('Remove placed pins, route paths, and clear inputs')"
             @click="handleClear"
           >

@@ -31,39 +31,38 @@ import { calculateVoyageGuidance } from '../../src/voyageGuidance.mjs';
 import { VESSEL_PROFILES, DEFAULT_VESSEL_PROFILE } from '../../src/fuelModel.mjs';
 
 export function seaIceRoutingProxy() {
-  return {
-    name: 'sea-ice-routing-proxy',
-    configureServer(server) {
-      // Pre-load dataset on server boot
-      loadSeaIceDataset().catch((err) => {
-        console.warn('[SEA ICE PROXY] Background ingestion notice:', err?.message || err);
-      });
+  const configure = (server) => {
+    // Pre-load dataset on server boot
+    loadSeaIceDataset().catch((err) => {
+      console.warn('[SEA ICE PROXY] Background ingestion notice:', err?.message || err);
+    });
 
-      server.middlewares.use(async (req, res, next) => {
-        const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-        const pathname = urlObj.pathname;
+    server.middlewares.use(async (req, res, next) => {
+      const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const pathname = urlObj.pathname;
 
-        const sendJson = (status, payload) => {
-          if (res.destroyed) return;
-          res.statusCode = status;
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(JSON.stringify(payload));
-        };
+      const sendJson = (status, payload) => {
+        if (res.destroyed) return;
+        res.statusCode = status;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.end(JSON.stringify(payload));
+      };
 
-        const parseJsonBody = async () => {
-          const chunks = [];
+      const parseJsonBody = async () => {
+        if (req.body && typeof req.body === 'object') return req.body;
+        const chunks = [];
+        try {
           for await (const chunk of req) {
             chunks.push(chunk);
           }
           const raw = Buffer.concat(chunks).toString('utf8');
           if (!raw.trim()) return {};
-          try {
-            return JSON.parse(raw);
-          } catch {
-            return null;
-          }
-        };
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      };
 
         // 1. GET /api/sea-ice/status
         if (req.method === 'GET' && pathname === '/api/sea-ice/status') {
@@ -245,6 +244,11 @@ export function seaIceRoutingProxy() {
 
         next();
       });
-    },
+  };
+
+  return {
+    name: 'sea-ice-routing-proxy',
+    configureServer: configure,
+    configurePreviewServer: configure,
   };
 }

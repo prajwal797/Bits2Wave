@@ -152,3 +152,83 @@ test('RoutePlanner pin placement workflow updates pinStage and terminates correc
   assert.equal(planner.initialPinData, null);
   assert.equal(planner.finalPinData, null);
 });
+
+test('createPinEntity adds Cyan and Magenta pins with depth test disabled and triggers requestRender', () => {
+  let renderedCount = 0;
+  const entities = [];
+  const mockViewer = {
+    entities: {
+      add: (ent) => {
+        entities.push(ent);
+        return ent;
+      },
+      remove: (ent) => {
+        const idx = entities.indexOf(ent);
+        if (idx >= 0) entities.splice(idx, 1);
+      },
+    },
+    scene: {
+      requestRender: () => {
+        renderedCount++;
+      },
+    },
+  };
+
+  const planner = new RoutePlanner({ viewer: mockViewer });
+
+  // Place initial cyan pin
+  planner.createPinEntity('initial', { lat: -77.85, lon: 166.67 });
+  assert.ok(planner.initialPinEntity);
+  assert.equal(planner.initialPinEntity.point.disableDepthTestDistance, Number.POSITIVE_INFINITY);
+  assert.equal(planner.initialPinEntity.label.disableDepthTestDistance, Number.POSITIVE_INFINITY);
+  assert.equal(renderedCount, 1);
+
+  // Place final magenta pin
+  planner.createPinEntity('final', { lat: -42.88, lon: 147.33 });
+  assert.ok(planner.finalPinEntity);
+  assert.equal(planner.finalPinEntity.point.disableDepthTestDistance, Number.POSITIVE_INFINITY);
+  assert.equal(planner.finalPinEntity.label.disableDepthTestDistance, Number.POSITIVE_INFINITY);
+  assert.equal(renderedCount, 2);
+
+  // Clear pins resets them and calls requestRender
+  planner.clearPins();
+  assert.equal(planner.initialPinEntity, null);
+  assert.equal(planner.finalPinEntity, null);
+  assert.equal(renderedCount, 3);
+});
+
+test('RoutePlanner calculateRoute handles async execution and generates complete maritime waypoints', async () => {
+  const renderedEntities = [];
+  let flyToCalled = false;
+  const mockViewer = {
+    entities: {
+      add: (ent) => {
+        renderedEntities.push(ent);
+        return ent;
+      },
+      remove: (ent) => {
+        const idx = renderedEntities.indexOf(ent);
+        if (idx >= 0) renderedEntities.splice(idx, 1);
+      },
+    },
+    scene: {
+      requestRender: () => {},
+    },
+    flyTo: async () => {
+      flyToCalled = true;
+    },
+  };
+
+  const planner = new RoutePlanner({ viewer: mockViewer });
+  const start = { lat: -77.8489, lon: 166.7683, label: 'Scott Base' };
+  const dest = { lat: -42.8821, lon: 147.3272, label: 'Hobart' };
+
+  const res = await planner.calculateRoute(start, dest, 'SHORTEST');
+
+  assert.equal(res.ok, true);
+  assert.equal(res.type, 'maritime');
+  assert.ok(res.distanceKm > 3000);
+  assert.ok(Array.isArray(res.waypoints));
+  assert.ok(res.waypoints.length >= 2);
+  assert.ok(renderedEntities.length > 0, 'Polyline or waypoint entities should be rendered');
+});
