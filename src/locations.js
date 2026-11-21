@@ -11,6 +11,7 @@ import { unavailablePlaceSearch } from './search/placeSearch.js';
 import { cancelCameraArrival } from './data/cameraArrival.js';
 import { guardCameraAboveGround } from './cameraGroundGuard.js';
 import { CITY_POIS } from './cityPois.js';
+export { CITY_POIS };
 import { fromDegrees, toRadians } from './geo/index.js';
 import { heightsOf } from './queries/heights.js';
 import { cameraOf } from './render/rendererOf.js';
@@ -1026,3 +1027,77 @@ function finitePositive(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
+
+/**
+ * Geocode a search query to a resolved location object via Google Geocoding API proxy.
+ * Returns array of matches: [{ label, lat, lon, formattedAddress, types }]
+ */
+export async function geocodePlace(query) {
+  if (!query || typeof query !== 'string' || !query.trim()) return [];
+  try {
+    const geocodeParams = new URLSearchParams({ address: query.trim() });
+    const res = await fetch(`/api/google/geocode?${geocodeParams}`);
+    const data = await res.json().catch(() => ({ status: 'ERROR', results: [] }));
+    if (data.status === 'OK' && Array.isArray(data.results)) {
+      return data.results.map((r) => ({
+        label: r.formatted_address,
+        lat: r.geometry.location.lat,
+        lon: r.geometry.location.lng,
+        formattedAddress: r.formatted_address,
+        types: r.types || [],
+      }));
+    }
+  } catch (err) {
+    console.warn('[locations] Geocode request failed:', err);
+  }
+  return [];
+}
+
+/**
+ * Fetch autocomplete location suggestions for live user typing.
+ */
+export async function fetchLocationSuggestions(query) {
+  const cleanQ = String(query || '').trim().toLowerCase();
+  if (cleanQ.length < 2) return [];
+
+  const suggestions = [];
+
+  // 1. Direct geocoding API call
+  const apiResults = await geocodePlace(query);
+  for (const item of apiResults) {
+    suggestions.push({
+      label: item.label,
+      lat: item.lat,
+      lon: item.lon,
+      source: 'google',
+    });
+  }
+
+  // If Google API returns results, return them (deduped)
+  if (suggestions.length > 0) return suggestions;
+
+  // 2. Fallback to CITY_POIS landmarks
+  for (const [cityId, city] of Object.entries(CITY_POIS)) {
+    if (city.name.toLowerCase().includes(cleanQ)) {
+      suggestions.push({
+        label: city.name,
+        lat: city.pois[0].lat,
+        lon: city.pois[0].lon,
+        source: 'preset',
+      });
+    }
+    for (const poi of city.pois) {
+      if (poi.name.toLowerCase().includes(cleanQ)) {
+        suggestions.push({
+          label: `${poi.name}, ${city.name}`,
+          lat: poi.lat,
+          lon: poi.lon,
+          source: 'preset',
+        });
+      }
+    }
+  }
+
+  return suggestions.slice(0, 6);
+}
+

@@ -16,6 +16,18 @@ export const INFRASTRUCTURE_DATA_URLS = Object.freeze({
     return new URL('../data/local_data/dams/dams.geojsonl', import.meta.url)
       .href;
   },
+  get 'local-icebergs'() {
+    return new URL(
+      '../data/local_data/icebergs/icebergs.geojsonl',
+      import.meta.url,
+    ).href;
+  },
+  get 'local-icebergs-full'() {
+    return new URL(
+      '../data/local_data/icebergs_full/icebergs_full.geojsonl',
+      import.meta.url,
+    ).href;
+  },
 });
 
 /** Parse GeoJSON Lines: one Feature per non-empty line. */
@@ -30,6 +42,7 @@ export function parseGeojsonLines(text) {
 export function layerTitle(layerId) {
   if (layerId === 'local-datacenters') return 'Datacenter';
   if (layerId === 'local-dams') return 'Dam';
+  if (layerId === 'local-icebergs' || layerId === 'local-icebergs-full') return 'Iceberg';
   return 'Feature';
 }
 

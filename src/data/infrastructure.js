@@ -9,6 +9,8 @@ import { INFRASTRUCTURE_DATA_URLS } from '../sources/infrastructureData.js';
 export function createInfrastructureLayers(services) {
   const datacentersUrl = INFRASTRUCTURE_DATA_URLS['local-datacenters'];
   const damsUrl = INFRASTRUCTURE_DATA_URLS['local-dams'];
+  const icebergsUrl = INFRASTRUCTURE_DATA_URLS['local-icebergs'];
+  const icebergsFullUrl = INFRASTRUCTURE_DATA_URLS['local-icebergs-full'];
   const datacenters = createLocalGeoJsonLayer(
     {
       id: 'local-datacenters',
@@ -41,5 +43,34 @@ export function createInfrastructureLayers(services) {
     services,
   );
 
-  return [datacenters, dams];
+  const icebergs = createLocalGeoJsonLayer(
+    {
+      id: 'local-icebergs',
+      url: icebergsUrl,
+      name: 'Icebergs',
+      color: '#00e5ff', // Icy cyan
+      icon: '🧊',
+      source: 'Antarctic Grounded Iceberg Detection',
+      labels: true,
+      labelMax: 200,
+      labelGridPx: 120,
+    },
+    services,
+  );
+
+  const icebergsFull = createLocalGeoJsonLayer(
+    {
+      id: 'local-icebergs-full',
+      url: icebergsFullUrl,
+      name: 'Icebergs (Full Dataset)',
+      color: '#00e5ff', // Icy cyan
+      icon: '🧊',
+      source: 'Antarctic Grounded Iceberg Sentinel-1 v1.2',
+      labels: false,
+      stems: false,
+    },
+    services,
+  );
+
+  return [datacenters, dams, icebergs, icebergsFull];
 }

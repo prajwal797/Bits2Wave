@@ -19,6 +19,7 @@ import UiSelect from '../kit/UiSelect.js';
 import LayerSectionIndex from './panels/LayerSectionIndex.vue';
 import LayerFinder from './panels/LayerFinder.vue';
 import DataLibraryBrowse from './panels/DataLibraryBrowse.vue';
+import { usePanelChromeStore } from '../stores/panelChrome.js';
 
 // Scene sharing (src/scenes/sharing.js) offers its authoring bar and presents
 // its dialog through this store; without this view, neither is drawn.
@@ -47,6 +48,15 @@ async function importChosen(event) {
   await scenes.act('importFile', file);
   if (scenes.attached) input.value = '';
 }
+
+const chrome = usePanelChromeStore();
+function openMaritimePlanner() {
+  chrome.act('toggle', 'location-bar');
+  setTimeout(() => {
+    const btn = document.getElementById('route-place-pins-btn');
+    if (btn) btn.scrollIntoView({ behavior: 'smooth' });
+  }, 100);
+}
 </script>
 
 <template>
@@ -64,7 +74,21 @@ async function importChosen(event) {
   <!-- Utilities: Directions (LayerPanel renders its row here), Draw, Import -->
   <RailPanel id="utilities-panel" start-collapsed :title="t('UTILITIES')" :hint="t('Directions, drawing and your own files')" scroll>
     <div id="utilities-toggles" class="data-toggle-list utilities-list"></div>
-    <div class="utilities-tools"><DrawControls /><GeoImport /></div>
+    <div class="utilities-tools">
+      <div style="margin-bottom: 8px;">
+        <UiButton
+          id="utilities-open-route-planner-btn"
+          class="gev-action-button"
+          style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(0, 229, 255, 0.15); border: 1px solid rgba(0, 229, 255, 0.4); color: #00e5ff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 4px;"
+          :title="t('Open Maritime Route Planner in bottom command dock')"
+          @click="openMaritimePlanner"
+        >
+          <span>📍</span>
+          <span>{{ t('MARITIME ROUTE PLANNER') }}</span>
+        </UiButton>
+      </div>
+      <DrawControls /><GeoImport />
+    </div>
   </RailPanel>
 
   <!-- CCTV Coverage Panel -->

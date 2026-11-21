@@ -30,3 +30,9 @@ pinokio/.installed
 
 # Transient: a release interrupted mid-assembly (npm run changelog recovers it)
 changelog.d/.assembling/
+
+# Backups and temporary migration folders
+_cryonis_checkpoint_backup/
+scratch/
+Antari-s/
+

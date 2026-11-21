@@ -78,5 +78,5 @@ test('the title heading keeps its own name beside the logo button', async (t) =>
   const named = document.getElementById(
     heading.getAttribute('aria-labelledby'),
   );
-  assert.equal(named.textContent.replace(/\s+/g, ' ').trim(), "GOD'S EYE VIEW");
+  assert.equal(named.textContent.replace(/\s+/g, ' ').trim(), "CRYONIS");
 });

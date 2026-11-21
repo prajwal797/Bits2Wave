@@ -1928,7 +1928,7 @@ export class StyleManager extends ShellFacade {
 
   _initHUDToggle() {
     this._setHudVariant('tactical');
-    this.hud.setMode('on');
+    this.hud.setMode('off');
     this._updateHudButtonState();
 
     this._lifetime.listen(this._cockpitDisplayToggleBtn, 'click', () => {

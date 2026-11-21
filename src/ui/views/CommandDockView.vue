@@ -12,6 +12,7 @@ import { usePointerReticleStore } from '../stores/pointerReticle.js';
 import { useVoiceStore } from '../stores/voice.js';
 import PhoneTabBar from './panels/PhoneTabBar.vue';
 import VoiceControl from './panels/VoiceControl.vue';
+import MaritimeRoutePlanner from './panels/MaritimeRoutePlanner.vue';
 
 // VisualSettings publishes the active style and the map source controls
 // their chip row; until they do, the dock shows its initial markup. A style
@@ -61,6 +62,19 @@ const { reticles } = storeToRefs(usePointerReticleStore());
 function selectMapSource(chip) {
   if (!chip.available) return;
   void mapSourceControls.value?.select(chip.id).catch(() => {});
+}
+
+function triggerPlacePins() {
+  if (panels.value['location-bar']?.collapsed) {
+    chrome.act('toggle', 'location-bar');
+  }
+  const planner = window.__cryonis?.routePlanner || window.routePlanner;
+  if (planner && typeof planner.handleTogglePins === 'function') {
+    planner.handleTogglePins();
+  } else {
+    const btn = document.getElementById('route-place-pins-btn');
+    if (btn) btn.click();
+  }
 }
 </script>
 
@@ -134,8 +148,17 @@ function selectMapSource(chip) {
     <div class="panel-glow"></div>
     <div class="location-inner">
       <div class="location-toolbar">
-        <UiButton id="location-bar-toggle" class="dock-tray-toggle" data-dock-toggle-target="location-bar" aria-controls="location-bar-popover" :aria-expanded="String(panels['location-bar']?.collapsed === false)" :aria-label="trayWords('location-bar', t('LOCATION'), t('Expand LOCATION'))" :title="trayWords('location-bar', t('LOCATION'), t('Expand LOCATION'))">
-          <span class="location-toolbar-label"><span class="dock-label-icon dock-label-icon-location" aria-hidden="true"></span>{{ t('LOCATION') }}</span>
+        <UiButton id="location-bar-toggle" class="dock-tray-toggle" data-dock-toggle-target="location-bar" aria-controls="location-bar-popover" :aria-expanded="String(panels['location-bar']?.collapsed === false)" :aria-label="trayWords('location-bar', t('LOCATION & ROUTING'), t('Expand LOCATION & ROUTING'))" :title="trayWords('location-bar', t('LOCATION & ROUTING'), t('Expand LOCATION & ROUTING'))">
+          <span class="location-toolbar-label"><span class="dock-label-icon dock-label-icon-location" aria-hidden="true"></span>{{ t('LOCATION & ROUTING') }}</span>
+        </UiButton>
+        <UiButton
+          id="dock-place-pins-shortcut"
+          class="dock-place-pins-chip"
+          type="button"
+          :title="t('Click globe to place Start & Destination pins')"
+          @click.stop="triggerPlacePins"
+        >
+          <span>📍 {{ t('PLACE PINS') }}</span>
         </UiButton>
         <UiButton class="panel-collapse-btn" data-collapse-target="location-bar" :title="t('Collapse panel')" @click="chrome.act('toggle', 'location-bar')">+</UiButton>
       </div>
@@ -157,6 +180,9 @@ function selectMapSource(chip) {
           </div>
         </div>
         <p id="location-search-error" class="location-search-error" role="alert">{{ loc?.searchOrigin === 'omnibar' ? '' : loc?.searchError }}</p>
+
+        <!-- Maritime Route Planner with Pin Placement -->
+        <MaritimeRoutePlanner />
       </div>
     </div>
   </div>
@@ -167,3 +193,29 @@ function selectMapSource(chip) {
   </Teleport>
   </div>
 </template>
+
+<style scoped>
+.dock-place-pins-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 229, 255, 0.16) !important;
+  border: 1px solid rgba(0, 229, 255, 0.45) !important;
+  color: #00e5ff !important;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 3px 8px !important;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 6px;
+  transition: all 0.2s ease;
+}
+
+.dock-place-pins-chip:hover {
+  background: rgba(0, 229, 255, 0.32) !important;
+  border-color: #00e5ff !important;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+</style>

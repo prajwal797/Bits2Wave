@@ -44,6 +44,8 @@ import { createInfrastructureLayers } from '../data/infrastructure.js';
 import { localGeoJsonServices } from './localGeojsonServices.js';
 import { createBhoteKoshiEventLayer } from '../data/bhoteKoshiEvent.js';
 import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
+import { createSeaIceLayer } from '../data/seaIceLayer.js';
+import { createOceanEmbedLayer } from '../data/oceanEmbed.js';
 
 /**
  * Hardware-local layers are registered like any other but never enter share
@@ -53,6 +55,10 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: 'local-adsb', disposition: 'local-only' }),
   // Voice search results belong to this session, like a receiver to this machine.
   Object.freeze({ id: 'osm-places', disposition: 'local-only' }),
+  Object.freeze({ id: 'local-icebergs', disposition: 'local-only' }),
+  Object.freeze({ id: 'local-icebergs-full', disposition: 'local-only' }),
+  Object.freeze({ id: 'local-sea-ice', disposition: 'local-only' }),
+  Object.freeze({ id: 'oceanEmbed', disposition: 'local-only' }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -216,6 +222,8 @@ export function createApplicationCatalog({
         createApplicationCyclones({ feed: sources.cyclones }),
         ...createOsmOverlayLayers(),
         ...createInfrastructureLayers(localGeoJsonServices),
+        createSeaIceLayer(),
+        createOceanEmbedLayer(),
         createApplicationCables({ source: sources.cables }),
         createApplicationRail({
           surface,
